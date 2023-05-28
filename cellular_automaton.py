@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-
+import scipy.spatial
 
 class CellularAutomaton2D:
     def __init__(self, size, exit_pos, panic_prob=0.05):
@@ -8,11 +8,18 @@ class CellularAutomaton2D:
         self.exit_pos = exit_pos
         self.panic_prob = panic_prob
 
+        # Initialize floor field values
+        x, y = np.indices(size)
+        self.floor_field = scipy.spatial.distance.cdist([(exit_pos)], np.column_stack([x.flatten(), y.flatten()])).reshape(size)
+        self.floor_field = self.floor_field * 1.5  # Increase diagonal distances
+        self.floor_field[exit_pos] = 1
+
     def initialize(self, pedestrians, obstacles):
         for p in pedestrians:
             self.grid[p] = 2  # pedestrian
         for o in obstacles:
             self.grid[o] = 1  # obstacle
+            self.floor_field[o] = np.inf  # walls
 
     def _get_neighbors(self, pos):
         x, y = pos
@@ -38,12 +45,12 @@ class CellularAutomaton2D:
         if np.random.rand() < self.panic_prob:
             return  # pedestrian stays in place due to panic
         neighbors = self._get_neighbors(pos)
-        np.random.shuffle(neighbors)  # randomize order for fairness
-        for nx, ny in neighbors:
-            if self.grid[nx, ny] == 0:  # empty cell
-                self.grid[nx, ny] = 2  # move pedestrian
-                self.grid[pos] = 0  # old position becomes empty
-                return
+        min_floor_field = min(self.floor_field[nx, ny] for nx, ny in neighbors if self.grid[nx, ny] == 0)  # empty cell
+        best_cells = [(nx, ny) for nx, ny in neighbors if self.grid[nx, ny] == 0 and self.floor_field[nx, ny] == min_floor_field]
+        if best_cells:
+            nx, ny = best_cells[np.random.randint(len(best_cells))]  # randomly choose among the best cells
+            self.grid[nx, ny] = 2  # move pedestrian
+            self.grid[pos] = 0  # old position becomes empty
 
     def step(self):
         pedestrians = np.argwhere(self.grid == 2)
