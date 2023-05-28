@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import scipy.spatial
 
+
 class CellularAutomaton2D:
     def __init__(self, size, exit_pos, panic_prob=0.05):
         self.grid = np.zeros(size)
@@ -10,7 +11,9 @@ class CellularAutomaton2D:
 
         # Initialize floor field values
         x, y = np.indices(size)
-        self.floor_field = scipy.spatial.distance.cdist([(exit_pos)], np.column_stack([x.flatten(), y.flatten()])).reshape(size)
+        self.floor_field = scipy.spatial.distance.cdist(
+            [(exit_pos)], np.column_stack([x.flatten(), y.flatten()])
+        ).reshape(size)
         self.floor_field = self.floor_field * 1.5  # Increase diagonal distances
         self.floor_field[exit_pos] = 1
 
@@ -45,10 +48,18 @@ class CellularAutomaton2D:
         if np.random.rand() < self.panic_prob:
             return  # pedestrian stays in place due to panic
         neighbors = self._get_neighbors(pos)
-        min_floor_field = min(self.floor_field[nx, ny] for nx, ny in neighbors if self.grid[nx, ny] == 0)  # empty cell
-        best_cells = [(nx, ny) for nx, ny in neighbors if self.grid[nx, ny] == 0 and self.floor_field[nx, ny] == min_floor_field]
+        min_floor_field = min(
+            self.floor_field[nx, ny] for nx, ny in neighbors if self.grid[nx, ny] == 0
+        )  # empty cell
+        best_cells = [
+            (nx, ny)
+            for nx, ny in neighbors
+            if self.grid[nx, ny] == 0 and self.floor_field[nx, ny] == min_floor_field
+        ]
         if best_cells:
-            nx, ny = best_cells[np.random.randint(len(best_cells))]  # randomly choose among the best cells
+            nx, ny = best_cells[
+                np.random.randint(len(best_cells))
+            ]  # randomly choose among the best cells
             self.grid[nx, ny] = 2  # move pedestrian
             self.grid[pos] = 0  # old position becomes empty
 
@@ -65,10 +76,13 @@ class CellularAutomaton2D:
 
     def visualize(self):
         plt.imshow(self.grid, cmap="viridis")
+        # Show the values of the cells
+        for (j, i), label in np.ndenumerate(self.grid):
+            plt.text(i, j, label, ha="center", va="center")
         plt.show()
 
 
 if __name__ == "__main__":
     ca = CellularAutomaton2D((10, 10), (5, 5))
-    ca.initialize([(0, 0), (9, 9)], [(4, 4), (5, 5), (6, 6)])
+    ca.initialize([(0, 0), (9, 9)], [(4, 4), (6, 6)])
     ca.run(10)
