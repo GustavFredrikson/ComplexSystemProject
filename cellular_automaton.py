@@ -1,6 +1,68 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy.spatial
+import pygame
+
+
+class PygameVisualizer:
+    def __init__(self, automaton, cell_size=50, fps=50):
+        self.automaton = automaton
+        self.cell_size = cell_size
+        self.colors = {
+            0: (255, 255, 255),  # Empty: White
+            1: (0, 0, 0),  # Obstacle: Black
+            2: (255, 0, 0),  # Pedestrian: Red
+            3: (0, 255, 0),  # Exit: Green
+        }
+
+        self.fps = fps
+
+    def visualize(self, steps):
+        pygame.init()
+
+        # Set the width and height of the grid locations
+        WIDTH = self.cell_size
+        HEIGHT = self.cell_size
+        MARGIN = 5
+
+        # Set the HEIGHT and WIDTH of the screen
+        WINDOW_SIZE = [
+            (WIDTH + MARGIN) * self.automaton.grid.shape[1],
+            (HEIGHT + MARGIN) * self.automaton.grid.shape[0],
+        ]
+        screen = pygame.display.set_mode(WINDOW_SIZE)
+
+        done = False
+        clock = pygame.time.Clock()
+
+        for _ in range(steps):
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    done = True
+            if done:
+                break
+
+            self.automaton.step()
+
+            screen.fill(self.colors[0])
+
+            for row in range(self.automaton.grid.shape[0]):
+                for column in range(self.automaton.grid.shape[1]):
+                    color = self.colors[int(self.automaton.grid[row][column])]
+                    pygame.draw.rect(
+                        screen,
+                        color,
+                        [
+                            (MARGIN + WIDTH) * column + MARGIN,
+                            (MARGIN + HEIGHT) * row + MARGIN,
+                            WIDTH,
+                            HEIGHT,
+                        ],
+                    )
+            clock.tick(self.fps)
+            pygame.display.flip()
+
+        pygame.quit()
 
 
 class CellularAutomaton2D:
@@ -16,6 +78,7 @@ class CellularAutomaton2D:
         ).reshape(size)
         self.floor_field = self.floor_field * 1.5  # Increase diagonal distances
         self.floor_field[exit_pos] = 1
+        self.grid[exit_pos] = 3  # exit
 
     def initialize(self, pedestrians, obstacles):
         for p in pedestrians:
@@ -49,19 +112,28 @@ class CellularAutomaton2D:
             return  # pedestrian stays in place due to panic
         neighbors = self._get_neighbors(pos)
         min_floor_field = min(
-            self.floor_field[nx, ny] for nx, ny in neighbors if self.grid[nx, ny] == 0
+            self.floor_field[nx, ny]
+            for nx, ny in neighbors
+            if self.grid[nx, ny] in [0, 3]
         )  # empty cell
         best_cells = [
             (nx, ny)
             for nx, ny in neighbors
-            if self.grid[nx, ny] == 0 and self.floor_field[nx, ny] == min_floor_field
+            if self.grid[nx, ny] in [0, 3]
+            and self.floor_field[nx, ny] == min_floor_field
         ]
         if best_cells:
             nx, ny = best_cells[
                 np.random.randint(len(best_cells))
             ]  # randomly choose among the best cells
-            self.grid[nx, ny] = 2  # move pedestrian
             self.grid[pos] = 0  # old position becomes empty
+            if (nx, ny) == self.exit_pos:  # if the pedestrian has reached the exit
+                self.grid[pos] = 0  # old position becomes empty
+                self.grid[nx, ny] = 3  # refresh exit
+                return  # pedestrian is removed from the grid
+
+            else:
+                self.grid[nx, ny] = 2  # move pedestrian
 
     def step(self):
         pedestrians = np.argwhere(self.grid == 2)
@@ -72,17 +144,10 @@ class CellularAutomaton2D:
     def run(self, steps):
         for _ in range(steps):
             self.step()
-            self.visualize()
-
-    def visualize(self):
-        plt.imshow(self.grid, cmap="viridis")
-        # Show the values of the cells
-        for (j, i), label in np.ndenumerate(self.grid):
-            plt.text(i, j, label, ha="center", va="center")
-        plt.show()
 
 
 if __name__ == "__main__":
     ca = CellularAutomaton2D((10, 10), (5, 5))
     ca.initialize([(0, 0), (9, 9)], [(4, 4), (6, 6)])
-    ca.run(10)
+    vis = PygameVisualizer(ca, fps=1)
+    vis.visualize(50)
