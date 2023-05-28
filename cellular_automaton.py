@@ -149,9 +149,9 @@ class CellularAutomaton2D:
 if __name__ == "__main__":
     grid_size = (25, 40)
     nr_pedestrians = 10
-    nr_obstacles = 15
+    nr_obstacles = 40
 
-    exit_pos = (grid_size[0] - 1, grid_size[1] - 1)
+    exit_pos = (0, grid_size[1] - 1)
     ca = CellularAutomaton2D(grid_size, exit_pos)
 
     pedestrians = [
