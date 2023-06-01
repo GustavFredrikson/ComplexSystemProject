@@ -6,7 +6,7 @@ from tqdm import tqdm
 
 
 class PygameVisualizer:
-    def __init__(self, automaton, fps=50, max_window_size=(800, 800)):
+    def __init__(self, automaton, fps=50, max_window_size=(400, 400)):
         self.automaton = automaton
         self.fps = fps
         self.max_window_size = max_window_size
@@ -22,7 +22,10 @@ class PygameVisualizer:
             1: (0, 0, 0),  # Obstacle: Black
             2: (255, 0, 0),  # Pedestrian: Red
             3: (0, 255, 0),  # Exit: Green
+            4: (0, 127, 255),  # Chair: Dark Blue
         }
+        pygame.font.init()
+        self.font = pygame.font.SysFont(None, 24)
 
     def visualize(self):
         pygame.init()
@@ -42,11 +45,11 @@ class PygameVisualizer:
         done = False
         clock = pygame.time.Clock()
 
-        while True:
+        while not done:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     done = True
-            if done or not self.automaton.pedestrians:
+            if not self.automaton.pedestrians:
                 break
 
             self.automaton.step()
@@ -55,7 +58,13 @@ class PygameVisualizer:
 
             for row in range(self.automaton.grid.shape[0]):
                 for column in range(self.automaton.grid.shape[1]):
-                    color = self.colors[int(self.automaton.grid[row][column])]
+                    if self.automaton.grid[row][column] == 1:  # obstacle
+                        color = self.colors[1]
+                    elif self.automaton.grid[row][column] == 4:  # chair
+                        color = self.colors[4]
+                    else:
+                        color = self.colors[int(self.automaton.grid[row][column])]
+
                     pygame.draw.rect(
                         screen,
                         color,
@@ -66,6 +75,18 @@ class PygameVisualizer:
                             HEIGHT,
                         ],
                     )
+            # Uncomment to show pedestrian ids on the pedestrian
+            # for pedestrian in self.automaton.pedestrians:
+            #     row, column = pedestrian.pos
+            #     text_surface = self.font.render(str(pedestrian.id), True, (0, 0, 0))
+            #     screen.blit(
+            #         text_surface,
+            #         (
+            #             (MARGIN + WIDTH) * column + MARGIN,
+            #             (MARGIN + HEIGHT) * row + MARGIN,
+            #         ),
+            #     )
+
             clock.tick(self.fps)
             pygame.display.flip()
 
@@ -73,11 +94,16 @@ class PygameVisualizer:
 
 
 class Pedestrian:
+    count = 0
+
     def __init__(self, pos, ca, memory_length):
         self.pos = pos
         self.ca = ca
         self.memory_length = memory_length
         self.memory_grid = ca.floor_field.copy()
+
+        self.id = Pedestrian.count
+        Pedestrian.count += 1
 
     def move(self, new_pos):
         self.memory_grid[self.pos] += 1
@@ -85,18 +111,19 @@ class Pedestrian:
 
 
 class Obstacle:
-    def __init__(self, pos):
+    def __init__(self, pos, is_chair=False, cost=10):
         self.pos = pos
+        self.is_chair = is_chair
+        self.cost = cost
 
 
 class CellularAutomaton2D:
     def __init__(
-        self, size, exit_pos, panic_prob=0.05, memory_length=5, max_search=250
+        self, size, exit_pos, panic_prob=0.05, memory_length=5, show_numbers=False
     ):
         self.grid = np.zeros(size)
         self.exit_pos = exit_pos
         self.panic_prob = panic_prob
-        self.max_search = max_search
         self.pedestrians = []
         self.obstacles = []
 
@@ -113,24 +140,16 @@ class CellularAutomaton2D:
 
     def add_pedestrian(self, pos):
         if self.grid[pos] == 0:
-            if (
-                self.grid.shape[0] * self.grid.shape[1] < self.max_search
-            ):  # Only search for exit if grid is small enough
-                can_reach_exit = self.can_reach_exit(pos)
-            else:
-                can_reach_exit = True
-
-            if can_reach_exit:
-                self.grid[pos] = 2
-                self.pedestrians.append(Pedestrian(pos, self, self.memory_length))
-                return True
+            self.grid[pos] = 2
+            self.pedestrians.append(Pedestrian(pos, self, self.memory_length))
+            return True
         return False
 
-    def add_obstacle(self, pos):
+    def add_obstacle(self, pos, is_chair=False, cost=2):
         if self.grid[pos] == 0:  # only place obstacle on empty spot
-            self.grid[pos] = 1
+            self.grid[pos] = 1 if not is_chair else 4
             self.floor_field[pos] = np.inf
-            self.obstacles.append(Obstacle(pos))
+            self.obstacles.append(Obstacle(pos, is_chair, cost))
             return True
         return False
 
@@ -141,33 +160,54 @@ class CellularAutomaton2D:
         neighbors = self._get_neighbors(pos)
 
         valid_neighbors = [
-            (nx, ny) for nx, ny in neighbors if self.grid[nx, ny] in [0, 3]
-        ]
+            (nx, ny) for nx, ny in neighbors if self.grid[nx, ny] in [0, 3, 4]
+        ]  # add 4 for chairs
         if not valid_neighbors:
             return
 
         min_memory_value = min(
             pedestrian.memory_grid[nx, ny]
             for nx, ny in neighbors
-            if self.grid[nx, ny] in [0, 3]
+            if self.grid[nx, ny] in [0, 3, 4]  # add 4 for chairs
         )  # empty cell or exit
 
         best_cells = [
             (nx, ny)
             for nx, ny in neighbors
-            if self.grid[nx, ny] in [0, 3]
+            if self.grid[nx, ny] in [0, 3, 4]  # add 4 for chairs
             and pedestrian.memory_grid[nx, ny] == min_memory_value
         ]
 
         if best_cells:
             nx, ny = best_cells[np.random.randint(len(best_cells))]
-            self.grid[pos] = 0  # old position becomes empty
-            if (nx, ny) == self.exit_pos:  # if the pedestrian has reached the exit
-                self.grid[nx, ny] = 3  # refresh exit
-                self.pedestrians.remove(pedestrian)  # remove pedestrian from the list
+            for obstacle in self.obstacles:
+                if (
+                    obstacle.pos == (nx, ny) and obstacle.is_chair
+                ):  # if the obstacle is a chair
+                    chair_neighbors = self._get_neighbors(obstacle.pos)
+                    # check if any neighboring cell of chair is empty
+                    if any(self.grid[cx, cy] == 0 for cx, cy in chair_neighbors):
+                        if np.random.rand() < 1.0 / (
+                            2 * pedestrian.memory_grid[nx, ny]
+                        ):  # chairs are harder to move
+                            obstacle.pos = pos
+                            self.grid[pos] = 4
+                            break
+                    else:  # if all neighboring cells of chair are not empty, pedestrian looks for another cell
+                        best_cells.remove((nx, ny))
+                        if best_cells:
+                            nx, ny = best_cells[np.random.randint(len(best_cells))]
+                        else:
+                            return
+            else:  # if no chair was moved
+                self.grid[pos] = 0  # old position becomes empty
+
+            if (nx, ny) == self.exit_pos:
+                self.grid[nx, ny] = 3
+                self.pedestrians.remove(pedestrian)
             else:
-                self.grid[nx, ny] = 2  # move pedestrian
-                pedestrian.move((nx, ny))  # update pedestrian's position
+                self.grid[nx, ny] = 2
+                pedestrian.move((nx, ny))
 
     def _get_neighbors(self, pos):
         x, y = pos
@@ -221,7 +261,7 @@ class CellularAutomaton2D:
         return False
 
     def is_obstacle(self, pos):
-        return self.grid[pos] == 1
+        return self.grid[pos] == 1 or self.grid[pos] == 4
 
     def step(self):
         for pedestrian in self.pedestrians:
@@ -233,11 +273,14 @@ class CellularAutomaton2D:
 
 
 if __name__ == "__main__":
-    grid_size = (25, 25)
+    grid_size = (75, 100)
     pct_obstacles = 0.2
-    pct_pedestrians = 0.1
+    pct_pedestrians = 0.05
+    pct_chairs = 0.0
+
     nr_obstacles = int(grid_size[0] * grid_size[1] * pct_obstacles)
     nr_pedestrians = int(grid_size[0] * grid_size[1] * pct_pedestrians)
+    nr_chairs = int(grid_size[0] * grid_size[1] * pct_chairs)
 
     exit_pos = (0, grid_size[1] - 1)
     ca = CellularAutomaton2D(grid_size, exit_pos)
@@ -252,11 +295,19 @@ if __name__ == "__main__":
             if ca.add_obstacle(pos):  # Check if the addition was successful
                 break
 
+    # Add chairs at random positions
+    for _ in range(nr_chairs):
+        while True:
+            pos = (
+                np.random.randint(0, grid_size[0]),
+                np.random.randint(0, grid_size[1]),
+            )
+            if ca.add_obstacle(pos, is_chair=True):
+                break
+
     # Add pedestrians at random positions
     for _ in tqdm(range(nr_pedestrians), desc="Adding pedestrians"):
-        i = 0
         while True:  # Continue until a free position is found
-            i += 1
             pos = (
                 np.random.randint(0, grid_size[0]),
                 np.random.randint(0, grid_size[1]),
@@ -264,5 +315,5 @@ if __name__ == "__main__":
             if ca.add_pedestrian(pos):  # Check if the addition was successful
                 break
 
-    vis = PygameVisualizer(ca, fps=2)
+    vis = PygameVisualizer(ca, fps=60)
     vis.visualize()
