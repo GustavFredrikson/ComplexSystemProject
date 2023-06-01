@@ -76,11 +76,32 @@ class PygameVisualizer:
         pygame.quit()
 
 
+class Pedestrian:
+    def __init__(self, pos, ca, memory_length):
+        self.pos = pos
+        self.ca = ca
+        self.memory_length = memory_length
+        self.memory_grid = ca.floor_field.copy()
+
+    def move(self, new_pos):
+        self.memory_grid[self.pos] += 1
+        self.pos = new_pos
+
+
+class Obstacle:
+    def __init__(self, pos):
+        self.pos = pos
+
+
 class CellularAutomaton2D:
-    def __init__(self, size, exit_pos, panic_prob=0.05):
+    def __init__(self, size, exit_pos, panic_prob=0.05, memory_length=5):
         self.grid = np.zeros(size)
         self.exit_pos = exit_pos
         self.panic_prob = panic_prob
+        self.pedestrians = []
+        self.obstacles = []
+
+        self.memory_length = memory_length  # Add a memory_length attribute
 
         # Initialize floor field values
         x, y = np.indices(size)
@@ -91,12 +112,54 @@ class CellularAutomaton2D:
         self.floor_field[exit_pos] = 1
         self.grid[exit_pos] = 3  # exit
 
-    def initialize(self, pedestrians, obstacles):
-        for p in pedestrians:
-            self.grid[p] = 2  # pedestrian
-        for o in obstacles:
-            self.grid[o] = 1  # obstacle
-            self.floor_field[o] = np.inf  # walls
+    def add_pedestrian(self, pos):
+        if self.grid[pos] == 0:  # only place pedestrian on empty spot
+            self.grid[pos] = 2
+            self.pedestrians.append(Pedestrian(pos, self, self.memory_length))
+            return True
+        return False
+
+    def add_obstacle(self, pos):
+        if self.grid[pos] == 0:  # only place obstacle on empty spot
+            self.grid[pos] = 1
+            self.floor_field[pos] = np.inf
+            self.obstacles.append(Obstacle(pos))
+            return True
+        return False
+
+    def _move_pedestrian(self, pedestrian):
+        pos = pedestrian.pos
+        if np.random.rand() < self.panic_prob:
+            return  # pedestrian stays in place due to panic
+        neighbors = self._get_neighbors(pos)
+        min_floor_field = min(
+            self.floor_field[nx, ny]
+            for nx, ny in neighbors
+            if self.grid[nx, ny] in [0, 3]
+        )  # empty cell
+
+        min_memory_value = min(
+            pedestrian.memory_grid[nx, ny]
+            for nx, ny in neighbors
+            if self.grid[nx, ny] in [0, 3]
+        )  # empty cell or exit
+
+        best_cells = [
+            (nx, ny)
+            for nx, ny in neighbors
+            if self.grid[nx, ny] in [0, 3]
+            and pedestrian.memory_grid[nx, ny] == min_memory_value
+        ]
+
+        if best_cells:
+            nx, ny = best_cells[np.random.randint(len(best_cells))]
+            self.grid[pos] = 0  # old position becomes empty
+            if (nx, ny) == self.exit_pos:  # if the pedestrian has reached the exit
+                self.grid[nx, ny] = 3  # refresh exit
+                self.pedestrians.remove(pedestrian)  # remove pedestrian from the list
+            else:
+                self.grid[nx, ny] = 2  # move pedestrian
+                pedestrian.move((nx, ny))  # update pedestrian's position
 
     def _get_neighbors(self, pos):
         x, y = pos
@@ -116,74 +179,24 @@ class CellularAutomaton2D:
                 if (
                     dx == 0
                     or dy == 0
-                    or (self.grid[x + dx][y] == 0 and self.grid[x][y + dy] == 0)
-                ):  # Hanterar diagonalrörelse genom hinder
+                    or (
+                        not self.is_obstacle((x + dx, y))
+                        and not self.is_obstacle((x, y + dy))
+                    )
+                ):  # Handle diagonal movement through obstacles
                     neighbors.append((nx, ny))
         return neighbors
 
-    def _move_pedestrian(self, pos):
-        if np.random.rand() < self.panic_prob:
-            return  # pedestrian stays in place due to panic
-        neighbors = self._get_neighbors(pos)
-        min_floor_field = min(
-            self.floor_field[nx, ny]
-            for nx, ny in neighbors
-            if self.grid[nx, ny] in [0, 3]
-        )  # empty cell
-        best_cells = [
-            (nx, ny)
-            for nx, ny in neighbors
-            if self.grid[nx, ny] in [0, 3]
-            and self.floor_field[nx, ny] == min_floor_field
-        ]
-        if best_cells:
-            nx, ny = best_cells[
-                np.random.randint(len(best_cells))
-            ]  # randomly choose among the best cells
-            self.grid[pos] = 0  # old position becomes empty
-            if (nx, ny) == self.exit_pos:  # if the pedestrian has reached the exit
-                self.grid[pos] = 0  # old position becomes empty
-                self.grid[nx, ny] = 3  # refresh exit
-                return  # pedestrian is removed from the grid
-
-            else:
-                self.grid[nx, ny] = 2  # move pedestrian
+    def is_obstacle(self, pos):
+        return self.grid[pos] == 1
 
     def step(self):
-        pedestrians = np.argwhere(self.grid == 2)
-        np.random.shuffle(pedestrians)  # randomize order for fairness
-        for p in pedestrians:
-            self._move_pedestrian(tuple(p))
+        for pedestrian in self.pedestrians:
+            self._move_pedestrian(pedestrian)
 
     def run(self, steps):
         for _ in range(steps):
             self.step()
-
-    def add_pedestrian(self, pos):
-        if self.grid[pos] == 0:  # only place pedestrian on empty spot
-            self.grid[pos] = 2  # pedestrian
-            return True
-        return False
-
-    def add_obstacle(self, pos):
-        if self.grid[pos] == 0:  # only place obstacle on empty spot
-            self.grid[pos] = 1  # obstacle
-            self.floor_field[pos] = np.inf  # walls
-            return True
-        return False
-
-    def remove_pedestrian(self, pos):
-        if self.grid[pos] == 2:
-            self.grid[pos] = 0  # empty spot
-
-    def remove_obstacle(self, pos):
-        if self.grid[pos] == 1:
-            self.grid[pos] = 0
-            self.floor_field[pos] = scipy.spatial.distance.cdist(
-                [(self.exit_pos)], [pos]
-            )[0][
-                0
-            ]  # restore floor field value
 
 
 if __name__ == "__main__":
