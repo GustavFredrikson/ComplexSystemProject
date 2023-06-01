@@ -3,19 +3,30 @@ import matplotlib.pyplot as plt
 import scipy.spatial
 import pygame
 
+import numpy as np
+import matplotlib.pyplot as plt
+import scipy.spatial
+import pygame
+
 
 class PygameVisualizer:
-    def __init__(self, automaton, cell_size=50, fps=50):
+    def __init__(self, automaton, fps=50, max_window_size=(800, 800)):
         self.automaton = automaton
-        self.cell_size = cell_size
+        self.fps = fps
+        self.max_window_size = max_window_size
+
+        # Calculate cell size based on max window size and grid size
+        self.cell_size = min(
+            self.max_window_size[0] // self.automaton.grid.shape[1],
+            self.max_window_size[1] // self.automaton.grid.shape[0],
+        )
+
         self.colors = {
             0: (255, 255, 255),  # Empty: White
             1: (0, 0, 0),  # Obstacle: Black
             2: (255, 0, 0),  # Pedestrian: Red
             3: (0, 255, 0),  # Exit: Green
         }
-
-        self.fps = fps
 
     def visualize(self, steps):
         pygame.init()
@@ -101,10 +112,13 @@ class CellularAutomaton2D:
             (1, 1),
         ]:
             nx, ny = x + dx, y + dy
-            if (
-                0 <= nx < self.grid.shape[0] and 0 <= ny < self.grid.shape[1]
-            ):  # within bounds
-                neighbors.append((nx, ny))
+            if 0 <= nx < self.grid.shape[0] and 0 <= ny < self.grid.shape[1]:
+                if (
+                    dx == 0
+                    or dy == 0
+                    or (self.grid[x + dx][y] == 0 and self.grid[x][y + dy] == 0)
+                ):  # Hanterar diagonalrörelse genom hinder
+                    neighbors.append((nx, ny))
         return neighbors
 
     def _move_pedestrian(self, pos):
@@ -145,32 +159,60 @@ class CellularAutomaton2D:
         for _ in range(steps):
             self.step()
 
+    def add_pedestrian(self, pos):
+        if self.grid[pos] == 0:  # only place pedestrian on empty spot
+            self.grid[pos] = 2  # pedestrian
+            return True
+        return False
+
+    def add_obstacle(self, pos):
+        if self.grid[pos] == 0:  # only place obstacle on empty spot
+            self.grid[pos] = 1  # obstacle
+            self.floor_field[pos] = np.inf  # walls
+            return True
+        return False
+
+    def remove_pedestrian(self, pos):
+        if self.grid[pos] == 2:
+            self.grid[pos] = 0  # empty spot
+
+    def remove_obstacle(self, pos):
+        if self.grid[pos] == 1:
+            self.grid[pos] = 0
+            self.floor_field[pos] = scipy.spatial.distance.cdist(
+                [(self.exit_pos)], [pos]
+            )[0][
+                0
+            ]  # restore floor field value
+
 
 if __name__ == "__main__":
-    grid_size = (25, 40)
-    nr_pedestrians = 10
-    nr_obstacles = 40
+    grid_size = (5, 5)
+    nr_pedestrians = 5
+    nr_obstacles = 5
 
     exit_pos = (0, grid_size[1] - 1)
     ca = CellularAutomaton2D(grid_size, exit_pos)
 
-    pedestrians = [
-        (np.random.randint(0, grid_size[0]), np.random.randint(0, grid_size[1]))
-        for _ in range(nr_pedestrians)
-    ]
-
-    obstacles = []
-    for _ in range(nr_obstacles):
-        while True:
-            obstacle_pos = (
+    # Add pedestrians at random positions
+    for _ in range(nr_pedestrians):
+        while True:  # Continue until a free position is found
+            pos = (
                 np.random.randint(0, grid_size[0]),
                 np.random.randint(0, grid_size[1]),
             )
-            if obstacle_pos not in pedestrians:
-                obstacles.append(obstacle_pos)
-                break  # Found a valid position, break the while loop
+            if ca.add_pedestrian(pos):  # Check if the addition was successful
+                break
 
-    ca.initialize(pedestrians, obstacles)
+    # Add obstacles at random positions
+    for _ in range(nr_obstacles):
+        while True:  # Continue until a free position is found
+            pos = (
+                np.random.randint(0, grid_size[0]),
+                np.random.randint(0, grid_size[1]),
+            )
+            if ca.add_obstacle(pos):  # Check if the addition was successful
+                break
 
     vis = PygameVisualizer(ca, fps=1)
     vis.visualize(50)
