@@ -6,10 +6,13 @@ from tqdm import tqdm
 
 
 class PygameVisualizer:
-    def __init__(self, automaton, fps=50, max_window_size=(400, 400)):
+    def __init__(
+        self, automaton, fps=50, max_window_size=(400, 400), show_numbers=False
+    ):
         self.automaton = automaton
         self.fps = fps
         self.max_window_size = max_window_size
+        self.show_numbers = show_numbers
 
         # Calculate cell size based on max window size and grid size
         self.cell_size = min(
@@ -25,9 +28,9 @@ class PygameVisualizer:
             4: (0, 127, 255),  # Chair: Dark Blue
         }
         pygame.font.init()
-        self.font = pygame.font.SysFont(None, 24)
+        self.font = pygame.font.SysFont(None, 12)
 
-    def visualize(self):
+    def visualize(self, stepping=False):
         pygame.init()
 
         # Set the width and height of the grid locations
@@ -45,14 +48,25 @@ class PygameVisualizer:
         done = False
         clock = pygame.time.Clock()
 
+        step = False
         while not done:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     done = True
+                if event.type == pygame.KEYDOWN:
+                    step = True
             if not self.automaton.pedestrians:
                 break
 
-            self.automaton.step()
+            if stepping:
+                if step:
+                    for _ in range(10):
+                        self.automaton.step()
+                    step = False
+                else:
+                    continue
+            else:
+                self.automaton.step()
 
             screen.fill(self.colors[0])
 
@@ -75,17 +89,22 @@ class PygameVisualizer:
                             HEIGHT,
                         ],
                     )
-            # Uncomment to show pedestrian ids on the pedestrian
-            # for pedestrian in self.automaton.pedestrians:
-            #     row, column = pedestrian.pos
-            #     text_surface = self.font.render(str(pedestrian.id), True, (0, 0, 0))
-            #     screen.blit(
-            #         text_surface,
-            #         (
-            #             (MARGIN + WIDTH) * column + MARGIN,
-            #             (MARGIN + HEIGHT) * row + MARGIN,
-            #         ),
-            #     )
+
+                    if (
+                        self.automaton.grid[row][column] != 1 and self.show_numbers
+                    ):  # Don't display for obstacles
+                        text_surface = self.font.render(
+                            f"{self.automaton.floor_field[row][column]:.1f}",
+                            True,
+                            (0, 0, 0),
+                        )
+                        screen.blit(
+                            text_surface,
+                            (
+                                (MARGIN + WIDTH) * column + MARGIN + 2,
+                                (MARGIN + HEIGHT) * row + MARGIN + 2,
+                            ),
+                        )
 
             clock.tick(self.fps)
             pygame.display.flip()
@@ -156,9 +175,8 @@ class CellularAutomaton2D:
     def _move_pedestrian(self, pedestrian):
         pos = pedestrian.pos
         if np.random.rand() < self.panic_prob:
-            return  # pedestrian stays in place due to panic
+            return
         neighbors = self._get_neighbors(pos)
-
         valid_neighbors = [
             (nx, ny) for nx, ny in neighbors if self.grid[nx, ny] in [0, 3, 4]
         ]  # add 4 for chairs
@@ -199,8 +217,8 @@ class CellularAutomaton2D:
                             nx, ny = best_cells[np.random.randint(len(best_cells))]
                         else:
                             return
-            else:  # if no chair was moved
-                self.grid[pos] = 0  # old position becomes empty
+            else:
+                self.grid[pos] = 0
 
             if (nx, ny) == self.exit_pos:
                 self.grid[nx, ny] = 3
@@ -273,10 +291,11 @@ class CellularAutomaton2D:
 
 
 if __name__ == "__main__":
-    grid_size = (75, 100)
+    grid_size = (50, 50)
     pct_obstacles = 0.2
-    pct_pedestrians = 0.05
-    pct_chairs = 0.0
+    pct_pedestrians = 0.1
+    pct_chairs = 0
+    show_numbers = False
 
     nr_obstacles = int(grid_size[0] * grid_size[1] * pct_obstacles)
     nr_pedestrians = int(grid_size[0] * grid_size[1] * pct_pedestrians)
@@ -315,5 +334,5 @@ if __name__ == "__main__":
             if ca.add_pedestrian(pos):  # Check if the addition was successful
                 break
 
-    vis = PygameVisualizer(ca, fps=60)
-    vis.visualize()
+    vis = PygameVisualizer(ca, fps=60, show_numbers=show_numbers)
+    vis.visualize(stepping=True)
