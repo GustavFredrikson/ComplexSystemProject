@@ -48,23 +48,19 @@ class PygameVisualizer:
         done = False
         clock = pygame.time.Clock()
 
-        step = False
         while not done:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     done = True
-                if event.type == pygame.KEYDOWN:
-                    step = True
+
+            keys = pygame.key.get_pressed()
             if not self.automaton.pedestrians:
                 break
 
             if stepping:
-                if step:
-                    for _ in range(10):
+                if keys[pygame.K_SPACE]:
+                    for _ in range(1):
                         self.automaton.step()
-                    step = False
-                else:
-                    continue
             else:
                 self.automaton.step()
 
@@ -290,7 +286,7 @@ class CellularAutomaton2D:
             self.step()
 
 
-if __name__ == "__main__":
+def main():
     grid_size = (50, 50)
     pct_obstacles = 0.2
     pct_pedestrians = 0.1
@@ -336,3 +332,7 @@ if __name__ == "__main__":
 
     vis = PygameVisualizer(ca, fps=60, show_numbers=show_numbers)
     vis.visualize(stepping=True)
+
+
+if __name__ == "__main__":
+    main()
