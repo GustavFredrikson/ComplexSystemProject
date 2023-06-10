@@ -1,1 +1,5 @@
 __pycache__/cellular_automaton.cpython-39.pyc
+__pycache__/ca.cpython-39.pyc
+.gitignore
+.DS_Store
+__pycache__/pyvis.cpython-39.pyc
